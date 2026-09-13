@@ -12,25 +12,54 @@ export function Terminal() {
   const [sel, setSel] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [tab, setTab] = useState<'market' | 'wallets' | 'social' | 'risk'>('market');
-  const mint = sel ?? snap?.watchlist[0]?.tokenMint ?? null;
+  const [showHelp, setShowHelp] = useState(false);
+  // The selection is pinned: it is set once (first token seen, or the user's click) and never
+  // follows the watchlist ranking, which reshuffles on every tick.
+  useEffect(() => {
+    if (sel === null && snap?.watchlist.length) setSel(snap.watchlist[0].tokenMint);
+  }, [sel, snap?.watchlist.length]);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('meme-intel-help-dismissed') !== '1') setShowHelp(true);
+    } catch {}
+  }, []);
+  const mint = sel;
   useEffect(() => {
     if (!mint) return;
     let alive = true;
+    setDetail(null);
     const load = () => getJson<Detail>(`/api/tokens/${mint}`).then((d) => alive && setDetail(d)).catch(() => {});
     load();
-    const t = setInterval(load, 5000);
+    const t = setInterval(load, 4000);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [mint, snap?.now]);
+  }, [mint]);
+  const dismissHelp = () => {
+    setShowHelp(false);
+    try { localStorage.setItem('meme-intel-help-dismissed', '1'); } catch {}
+  };
 
   if (!snap) return <div className="page muted">Connecting to API…</div>;
   const m = detail?.market;
+  const isSim = !!snap.health?.simulation;
   return (
+    <>
+    {showHelp && (
+      <div className="help">
+        <button className="close" onClick={dismissHelp}>got it ✕</button>
+        <b>What you are looking at.</b> {isSim ? 'This is a synthetic market (no real tokens, no real money) so every engine can be watched end to end. Use ⏸ pause and the speed buttons in the top bar; the clock next to ⌚ is simulated time.' : 'Live market data; execution mode is shown in the top bar.'} Click a token on the left to pin it; the selection does not move on its own.
+        <div className="cols3">
+          <div><b>Watchlist (left)</b> · every token the engine is tracking, best setups first. <b>decision</b>: ENTER / CONF ENTRY (wait for buyer confirmation) / WATCH / PASS / BLOCK (a security hard-block, never tradeable). <b>α</b> alpha 0–100. <b>EV</b> net expected value after fees, slippage and rug risk. <b>sec</b> security score. <b>rug</b> rug probability. ✦ = a narrative catalyst is attached.</div>
+          <div><b>Token terminal (center)</b> · price, liquidity, volume, buyer acceleration and how much of the volume looks real, with tabs for the market tape, the wallets and clusters trading it, social velocity, and the risk findings behind the security score.</div>
+          <div><b>Intelligence (right)</b> · the decision card (all scores + the reason), suggested size, what happened to historically similar tokens, and short analyst notes. <b>Live feed (bottom)</b> · alerts, notable wallet trades, liquidity and security events, paper trades and post-mortems. Pattern Lab and Portfolio are in the top nav.</div>
+        </div>
+      </div>
+    )}
     <div className="grid">
       <section className="panel left">
-        <h2>Watchlist <span className="muted">{snap.watchlist.length} live</span></h2>
+        <h2>Watchlist <span className="muted">{snap.watchlist.length} live<button className="iconbtn" title="what am I looking at?" onClick={() => setShowHelp(true)}>?</button></span></h2>
         <div className="body">
           <table>
             <thead><tr><th>token</th><th>decision</th><th className="num">α</th><th className="num">EV</th><th className="num">sec</th><th className="num">rug</th><th>fresh</th></tr></thead>
@@ -197,5 +226,6 @@ export function Terminal() {
         </div>
       </section>
     </div>
+    </>
   );
 }

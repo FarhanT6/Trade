@@ -9,7 +9,7 @@ export interface Config {
   anthropicApiKey?: string;
   llmModel: string;
   databaseUrl?: string;
-  /** Simulation: simulated minutes advanced per real second. */
+  /** Simulation: simulated minutes advanced per real second (2 = one 5-minute tick every 2.5s). */
   simSpeed: number;
   simSeed: number;
   simTokens: number;
@@ -51,7 +51,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     anthropicApiKey: env('ANTHROPIC_API_KEY') || undefined,
     llmModel: env('LLM_MODEL', 'claude-sonnet-5') as string,
     databaseUrl: env('DATABASE_URL') || undefined,
-    simSpeed: Number(env('SIM_SPEED', '15')),
+    simSpeed: Number(env('SIM_SPEED', '2')),
     simSeed: Number(env('SIM_SEED', '1337')),
     simTokens: Number(env('SIM_TOKENS', '36')),
     simWallets: Number(env('SIM_WALLETS', '240')),

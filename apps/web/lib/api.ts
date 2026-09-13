@@ -22,6 +22,12 @@ export interface Snapshot {
   health: Record<string, { ok: boolean; detail?: string }>;
 }
 
+export async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${API_URL}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  return r.json() as Promise<T>;
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const r = await fetch(`${API_URL}${path}`, { cache: 'no-store' });
   if (!r.ok) throw new Error(`${path}: ${r.status}`);

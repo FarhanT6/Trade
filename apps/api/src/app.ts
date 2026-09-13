@@ -8,7 +8,14 @@ export function buildApp(rt: Runtime): FastifyInstance {
   app.register(cors, { origin: true });
   const { engine } = rt;
 
-  app.get('/api/health', async () => ({ ok: true, mode: rt.world ? 'simulation' : 'live', now: rt.now(), ticks: rt.ticks, sources: engine.health, execution: { rpcHealth: engine.rpc.health(rt.now()), killSwitch: engine.killSwitch.evaluate(engine.rpc.health(rt.now())) } }));
+  app.get('/api/sim', async (_req, reply) => (rt.sim ? rt.sim.state() : reply.code(404).send({ error: 'not in simulation mode' })));
+  app.post<{ Body: { speed?: number; paused?: boolean } }>('/api/sim', async (req, reply) => {
+    if (!rt.sim) return reply.code(404).send({ error: 'not in simulation mode' });
+    if (typeof req.body?.speed === 'number') rt.sim.setSpeed(req.body.speed);
+    if (typeof req.body?.paused === 'boolean') rt.sim.setPaused(req.body.paused);
+    return rt.sim.state();
+  });
+  app.get('/api/health', async () => ({ ok: true, mode: rt.world ? 'simulation' : 'live', now: rt.now(), ticks: rt.ticks, sim: rt.sim?.state() ?? null, sources: engine.health, execution: { rpcHealth: engine.rpc.health(rt.now()), killSwitch: engine.killSwitch.evaluate(engine.rpc.health(rt.now())) } }));
   app.get('/api/snapshot', async () => engine.snapshot(rt.now()));
   app.get('/api/tokens', async () => engine.snapshot(rt.now()).watchlist);
   app.get<{ Params: { mint: string } }>('/api/tokens/:mint', async (req, reply) => {

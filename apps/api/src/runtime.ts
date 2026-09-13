@@ -17,6 +17,8 @@ export interface Runtime {
   stop(): void;
   onSnapshot(cb: (s: EngineSnapshot) => void): () => void;
   ticks: number;
+  /** Simulation clock controls (absent in live mode). */
+  sim?: { state(): { speed: number; paused: boolean; simNow: number; stepMs: number }; setSpeed(minutesPerSecond: number): void; setPaused(paused: boolean): void };
 }
 
 /**
@@ -37,6 +39,9 @@ export async function createRuntime(cfg: Config): Promise<Runtime> {
     let simNow = world.start;
     let cursor = world.start - 40 * MS.d;
     const stepMs = 5 * MS.m;
+    let speed = Math.max(0.1, cfg.simSpeed);
+    let paused = false;
+    let lastEmit = 0;
     const engine = new IntelligenceEngine({ bus, now: () => simNow, priceHistory: world, intendedSizeUsd: cfg.intendedSizeUsd, startEquityUsd: cfg.startEquityUsd, llm, rpcUrls: ['sim://rpc-a', 'sim://rpc-b', 'sim://rpc-c'] });
     for (const st of world.tokens) engine.setDeployerHistory(st.deployer);
     engine.health['simulation'] = { ok: true, detail: `${world.tokens.length} tokens / ${world.wallets.length} wallets / seed ${cfg.simSeed}` };
@@ -67,21 +72,41 @@ export async function createRuntime(cfg: Config): Promise<Runtime> {
         await engine.recompute(simNow, { heavy: ticks % 3 === 0 });
         ticks++;
         rt.ticks = ticks;
-        const snap = engine.snapshot(simNow);
-        for (const l of listeners) l(snap);
+        // Push to SSE subscribers at most once per second so the UI stays readable at high speeds.
+        const wall = Date.now();
+        if (wall - lastEmit >= 1000) {
+          lastEmit = wall;
+          const snap = engine.snapshot(simNow);
+          for (const l of listeners) l(snap);
+        }
       },
       start() {
         if (timer) return;
-        const intervalMs = Math.max(200, (stepMs / MS.m / cfg.simSpeed) * 1000);
         const loop = async () => {
-          try {
-            await rt.tick();
-          } catch (e) {
-            console.error('[runtime] tick failed', e);
+          if (!paused) {
+            try {
+              await rt.tick();
+            } catch (e) {
+              console.error('[runtime] tick failed', e);
+            }
           }
+          const intervalMs = paused ? 500 : Math.max(200, (stepMs / MS.m / speed) * 1000);
           timer = setTimeout(loop, intervalMs);
         };
         timer = setTimeout(loop, 0);
+      },
+      sim: {
+        state: () => ({ speed, paused, simNow, stepMs }),
+        setSpeed: (v) => {
+          speed = Math.min(120, Math.max(0.1, v));
+        },
+        setPaused: (p) => {
+          paused = p;
+          if (p) {
+            const snap = engine.snapshot(simNow);
+            for (const l of listeners) l(snap);
+          }
+        },
       },
       stop() {
         if (timer) clearTimeout(timer);

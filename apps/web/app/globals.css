@@ -11,6 +11,14 @@ a:hover { text-decoration: underline; }
 .pill.ok { color: var(--green); border-color: rgba(61,220,151,.4); }
 .pill.bad { color: var(--red); border-color: rgba(255,92,122,.4); }
 .pill.warn { color: var(--amber); border-color: rgba(255,180,84,.4); }
+.simctl { display: inline-flex; gap: 4px; align-items: center; }
+.simctl button { background: none; border: 1px solid var(--border); color: var(--muted); padding: 1px 7px; border-radius: 4px; cursor: pointer; font: inherit; font-size: 11px; }
+.simctl button.on, .simctl button:hover { color: #fff; border-color: var(--amber); }
+.help { padding: 8px 12px; border-bottom: 1px solid var(--border); background: rgba(90,169,255,.05); font-size: 12px; line-height: 1.5; }
+.help b { color: #fff; }
+.help .close { float: right; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer; font: inherit; font-size: 11px; padding: 1px 7px; }
+.help .cols3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 18px; margin-top: 6px; }
+.iconbtn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer; font: inherit; font-size: 11px; padding: 0 6px; margin-left: 6px; }
 .grid { display: grid; grid-template-columns: 300px 1fr 340px; grid-template-rows: minmax(0, 1fr) 220px; gap: 8px; padding: 8px; height: calc(100vh - 42px); }
 .grid > .left { grid-column: 1; grid-row: 1; }
 .grid > .center { grid-column: 2; grid-row: 1; }
