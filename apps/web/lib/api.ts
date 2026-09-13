@@ -15,7 +15,7 @@ export interface Snapshot {
   portfolio: { equityUsd: number; cashUsd: number; open: number; realizedUsd: number; halted: boolean; haltReason: string | null };
   paperPositions: Array<{ symbol: string; tokenMint: string; sizeUsd: number; entryPriceUsd: number; currentPriceUsd: number; pnlPct: number; remainingFraction: number; openedAt: number }>;
   closedTrades: Array<{ tokenMint: string; pnlPct: number; pnlUsd: number; sizeUsd: number; rugged: boolean; exitAt: number }>;
-  execution: { rpcHealth: number; killSwitch: { tripped: boolean; reason: string | null }; orders: number; auditEvents: number };
+  execution: { rpcHealth: number; killSwitch: { tripped: boolean; reason: string | null }; orders: number; auditEvents: number; mode: 'paper' | 'live'; liveLimits: { maxTradeUsd: number; dailyCapUsd: number }; wallet: string | null };
   feed: Array<{ ts: number; kind: string; text: string; tokenMint?: string }>;
   outcomes: number;
   similarityCases: number;

@@ -8,8 +8,8 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @meme-intel/core && npm run build -w @meme-intel/api",
-    "test": "npm run test -w @meme-intel/core && npm run test -w @meme-intel/api",
+    "build": "npm run build -w @meme-intel/core && npm run build -w @meme-intel/solana && npm run build -w @meme-intel/api",
+    "test": "npm run test -w @meme-intel/core && npm run test -w @meme-intel/solana && npm run test -w @meme-intel/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev -w @meme-intel/api",
     "dev:web": "npm run dev -w @meme-intel/web",

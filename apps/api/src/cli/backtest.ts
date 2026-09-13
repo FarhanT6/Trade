@@ -5,7 +5,7 @@ import { runBacktest } from '../app.js';
 
 const hours = Number(process.argv[2] ?? '60');
 const cfg = loadConfig({ mode: 'simulation' });
-const rt = createRuntime(cfg);
+const rt = await createRuntime(cfg);
 const t0 = rt.now();
 console.log(`Replaying ${hours}h (seed ${cfg.simSeed})…`);
 while (rt.now() - t0 < hours * MS.h) await rt.tick();

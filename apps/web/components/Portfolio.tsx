@@ -27,7 +27,7 @@ export function Portfolio() {
   return (
     <div className="page">
       <div className="cols">
-        <section className="panel"><h2>Paper portfolio <span className={`pill ${p.halted ? 'bad' : 'ok'}`}>{p.halted ? `HALTED: ${p.haltReason}` : 'trading'}</span></h2>
+        <section className="panel"><h2>{snap.execution.mode === 'live' ? 'Live portfolio (real funds)' : 'Paper portfolio'} <span>{snap.execution.mode === 'live' && <span className="pill bad" style={{ marginRight: 6 }}>● LIVE · max {fmtUsd(snap.execution.liveLimits.maxTradeUsd)}/trade · {fmtUsd(snap.execution.liveLimits.dailyCapUsd)}/day</span>}<span className={`pill ${p.halted ? 'bad' : 'ok'}`}>{p.halted ? `HALTED: ${p.haltReason}` : 'trading'}</span></span></h2>
           <div className="stat">
             <div><b>{fmtUsd(p.equityUsd)}</b><span>equity</span></div>
             <div><b>{fmtUsd(p.cashUsd)}</b><span>cash / reserve</span></div>

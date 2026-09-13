@@ -14,6 +14,7 @@ export function Nav() {
       <nav>{link('/', 'Terminal')}{link('/pattern-lab', 'Top-Trader Pattern Lab')}{link('/portfolio', 'Portfolio & Execution')}</nav>
       <span style={{ flex: 1 }} />
       {snap && <span className="pill">regime {snap.regime.regime} · breadth {(snap.regime.breadth * 100).toFixed(0)}%</span>}
+      {snap && <span className={`pill ${snap.execution.mode === 'live' ? 'bad' : 'warn'}`} title={snap.execution.mode === 'live' ? `LIVE: real funds · max $${snap.execution.liveLimits.maxTradeUsd}/trade · $${snap.execution.liveLimits.dailyCapUsd}/day` : 'paper trading: simulated fills'}>{snap.execution.mode === 'live' ? '● LIVE ON-CHAIN' : 'paper'}</span>}
       {snap && <span className={`pill ${snap.execution.killSwitch.tripped ? 'bad' : 'ok'}`}>exec {snap.execution.killSwitch.tripped ? 'HALTED' : 'ok'} · rpc {(snap.execution.rpcHealth * 100).toFixed(0)}%</span>}
       {sources.map(([n, h]) => <span key={n} className={`pill ${h.ok ? 'ok' : ''}`} title={h.detail}>{n}</span>)}
       <span className={`pill ${connected ? 'ok' : 'bad'}`}>{connected ? 'live' : 'reconnecting'}</span>

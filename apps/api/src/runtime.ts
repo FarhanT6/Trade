@@ -2,6 +2,7 @@ import {
   AnthropicProvider, DexScreenerAdapter, InMemoryEventBus, IntelligenceEngine, MS, PlatformAdapter, RedditAdapter, SimulationAdapter, SimulationWorld, SolanaRpcAdapter, XAdapter,
   type EngineSnapshot, type SourceAdapter,
 } from '@meme-intel/core';
+import { createLiveExecution, type LiveExecution } from '@meme-intel/solana';
 import type { Config } from './config.js';
 
 export interface Runtime {
@@ -18,7 +19,12 @@ export interface Runtime {
   ticks: number;
 }
 
-export function createRuntime(cfg: Config): Runtime {
+/**
+ * Builds the runtime. In live mode, on-chain execution is armed only when every gate in
+ * `createLiveExecution` passes (explicit flag + acknowledgement, caps, hot-wallet key,
+ * reachable RPC, wallet balance band); otherwise live mode still runs but trades on paper.
+ */
+export async function createRuntime(cfg: Config): Promise<Runtime> {
   const bus = new InMemoryEventBus();
   const llm = cfg.anthropicApiKey ? new AnthropicProvider(cfg.anthropicApiKey, cfg.llmModel) : undefined;
   const listeners = new Set<(s: EngineSnapshot) => void>();
@@ -99,7 +105,31 @@ export function createRuntime(cfg: Config): Runtime {
     new PlatformAdapter({ name: 'axiom', baseUrl: cfg.platforms.axiom?.baseUrl, apiKey: cfg.platforms.axiom?.apiKey }),
     new PlatformAdapter({ name: 'fomp', baseUrl: cfg.platforms.fomp?.baseUrl }),
   ];
-  const engine = new IntelligenceEngine({ bus, now: () => Date.now(), intendedSizeUsd: cfg.intendedSizeUsd, startEquityUsd: cfg.startEquityUsd, llm, rpcUrls: cfg.solanaRpcUrls });
+  let live: LiveExecution | null = null;
+  let liveError: string | null = null;
+  if (cfg.live.enabled) {
+    try {
+      live = await createLiveExecution({
+        enabled: cfg.live.enabled,
+        acknowledgement: cfg.live.acknowledgement,
+        rpcUrls: cfg.solanaRpcUrls,
+        maxTradeUsd: cfg.live.maxTradeUsd,
+        dailyCapUsd: cfg.live.dailyCapUsd,
+        minWalletSol: cfg.live.minWalletSol,
+        maxWalletSol: cfg.live.maxWalletSol,
+        jupiter: { swapBaseUrl: cfg.live.jupiterSwapBaseUrl, priceBaseUrl: cfg.live.jupiterPriceBaseUrl, apiKey: cfg.live.jupiterApiKey, slippageBps: cfg.live.slippageBps, maxPriorityFeeLamports: cfg.live.maxPriorityFeeLamports, allowedDexes: cfg.live.allowedDexes },
+      });
+      console.warn(`\n[LIVE EXECUTION ARMED] wallet ${live.walletAddress} (${live.walletSol.toFixed(3)} SOL) · max $${live.limits.maxTradeUsd}/trade · $${live.limits.dailyCapUsd}/day · kill switch: POST /api/execution/kill-switch\n`);
+    } catch (e) {
+      liveError = (e as Error).message;
+      console.error(`[live execution] NOT armed, staying on paper: ${liveError}`);
+    }
+  }
+  const engine = new IntelligenceEngine({
+    bus, now: () => Date.now(), intendedSizeUsd: live ? Math.min(cfg.intendedSizeUsd, live.limits.maxTradeUsd) : cfg.intendedSizeUsd, startEquityUsd: cfg.startEquityUsd, llm, rpcUrls: cfg.solanaRpcUrls,
+    executionMode: live ? 'live' : 'paper', quoteSources: live ? [live.quoteSource] : undefined, sender: live?.sender, liveLimits: live?.limits,
+  });
+  engine.health['live-execution'] = live ? { ok: true, detail: `armed: ${live.walletAddress.slice(0, 6)}… $${live.limits.maxTradeUsd}/trade $${live.limits.dailyCapUsd}/day` } : { ok: false, detail: liveError ?? 'paper mode (LIVE_EXECUTION_ENABLED != true)' };
   let cursor = Date.now() - 15 * MS.m;
   const rt: Runtime = {
     engine,

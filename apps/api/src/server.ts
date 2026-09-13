@@ -4,7 +4,7 @@ import { buildApp } from './app.js';
 import { attachPersistence } from './persistence.js';
 
 const cfg = loadConfig();
-const rt = createRuntime(cfg);
+const rt = await createRuntime(cfg);
 const app = buildApp(rt);
 attachPersistence(rt, cfg).catch((e) => console.error('[persistence] disabled:', (e as Error).message));
 rt.start();

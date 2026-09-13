@@ -76,6 +76,38 @@ Every adapter reports `health()`; missing sources are surfaced as unavailable, n
 neutral. Set `DATABASE_URL` to persist signals, outcomes, alerts, orders and execution
 events to Postgres (`npm run db:migrate` applies the schema).
 
+## Live on-chain execution (Solana, via Jupiter)
+
+Live trading is implemented in `packages/solana` and is **off by default**. When armed, the
+same engine that drives paper trading routes orders through `SolanaTransactionSender`:
+
+1. fresh Jupiter quote at send time (refused if impact moved past the engine's worst case);
+2. Jupiter swap transaction, signed locally with the hot-wallet key (the key never leaves the process);
+3. on-chain `simulateTransaction`: any error aborts before anything is sent;
+4. send with `skipPreflight`, adaptive priority fee capped by `LIVE_MAX_PRIORITY_FEE_LAMPORTS`;
+5. confirmation polling, then the fill is parsed from the confirmed transaction's SOL and
+   token balance deltas (so recorded prices include every fee), with a quote-implied fallback.
+
+Every one of these gates must pass or the process stays on paper and says why in `/api/health`:
+
+| Gate | Setting |
+|---|---|
+| explicit enable | `MODE=live` and `LIVE_EXECUTION_ENABLED=true` |
+| explicit acknowledgement | `LIVE_EXECUTION_ACK=I-ACCEPT-TOTAL-LOSS` |
+| hot wallet key | `SOLANA_PRIVATE_KEY` (base58 or JSON array) or `SOLANA_KEYPAIR_PATH` |
+| caps | `LIVE_MAX_TRADE_USD` ≤ `LIVE_DAILY_CAP_USD`, both > 0 (defaults $50 / $250) |
+| wallet band | balance between `LIVE_MIN_WALLET_SOL` and `LIVE_MAX_WALLET_SOL` (refuses a large wallet) |
+| reachable services | RPC responds; Jupiter price API responds |
+
+On top of that, live orders still pass the portfolio limits, the exit-path probe, the impact
+cap, the simulation gate and the kill switch (`POST /api/execution/kill-switch` halts new
+buys immediately; sells stay allowed so positions can always be closed). Optional
+`LIVE_ALLOWED_DEXES` restricts routing to named venues.
+
+Use a dedicated hot wallet holding only what you can lose. This code has been tested against
+mocked RPC and Jupiter responses, not with real funds: run it on paper first, then with
+`LIVE_MAX_TRADE_USD` at the minimum, and watch the audit log.
+
 ## Key ideas implemented
 
 - **Evidence separation**: blockchain facts, statistical signals, social signals and AI

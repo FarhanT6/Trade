@@ -5,7 +5,7 @@ import { buildApp, runBacktest } from './app.js';
 
 describe('api', () => {
   it('serves snapshot, token detail, pattern lab and backtest after simulation ticks', async () => {
-    const rt = createRuntime(loadConfig({ mode: 'simulation', simTokens: 16, simWallets: 120, simSeed: 3 }));
+    const rt = await createRuntime(loadConfig({ mode: 'simulation', simTokens: 16, simWallets: 120, simSeed: 3 }));
     for (let i = 0; i < 80; i++) await rt.tick();
     const app = buildApp(rt);
     const health = await app.inject({ method: 'GET', url: '/api/health' });

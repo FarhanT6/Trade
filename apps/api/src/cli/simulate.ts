@@ -4,7 +4,7 @@ import { createRuntime } from '../runtime.js';
 
 const hours = Number(process.argv[2] ?? '30');
 const cfg = loadConfig({ mode: 'simulation' });
-const rt = createRuntime(cfg);
+const rt = await createRuntime(cfg);
 const t0 = rt.now();
 console.log(`Simulating ${hours}h of market (seed ${cfg.simSeed}, ${cfg.simTokens} tokens, ${cfg.simWallets} wallets)…`);
 while (rt.now() - t0 < hours * MS.h) await rt.tick();

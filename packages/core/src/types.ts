@@ -533,6 +533,11 @@ export interface Order {
   tokenMint: string;
   side: TradeSide;
   sizeUsd: number;
+  /** For sells: exact token quantity to dispose of (token units, not smallest units). */
+  amountToken?: number;
+  /** Actual token quantity received (buy) or sold (sell) once filled. */
+  filledTokenAmount?: number;
+  txSignature?: string;
   status: OrderStatus;
   mode: 'paper' | 'live';
   quote?: Quote;

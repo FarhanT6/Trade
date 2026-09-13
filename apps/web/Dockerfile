@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
+COPY packages/solana/package.json packages/solana/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 RUN npm ci --no-audit --no-fund

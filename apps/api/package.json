@@ -16,7 +16,8 @@
     "@fastify/cors": "^10.0.0",
     "@meme-intel/core": "*",
     "fastify": "^5.1.0",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "@meme-intel/solana": "*"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",

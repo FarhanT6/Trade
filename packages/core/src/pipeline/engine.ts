@@ -15,7 +15,7 @@ import { SimilarityIndex, categoryBucket, type TokenStateVector } from '../simil
 import { distributionScore, type DistributionReport } from '../exits/distribution.js';
 import { planExit, volatilityStopPct, type OpenPositionState } from '../exits/manager.js';
 import { checkPortfolioLimits, DEFAULT_LIMITS, type PortfolioState } from '../portfolio/limits.js';
-import { AuditLog, ExecutionEngine, KillSwitch, PoolQuoteSource, QuoteEngine, RpcRouter } from '../execution/engine.js';
+import { AuditLog, ExecutionEngine, KillSwitch, PoolQuoteSource, QuoteEngine, RpcRouter, type QuoteSource, type TransactionSender } from '../execution/engine.js';
 import { evaluateAlerts } from '../alerts/rules.js';
 import type { TradeResult } from '../backtest/metrics.js';
 import { MS, clamp, mean, ratio, unique } from '../util/stats.js';
@@ -42,6 +42,15 @@ export interface EngineOptions {
   outcomeHorizonMs?: number;
   paperTrading?: boolean;
   topN?: number;
+  /**
+   * 'paper' (default) simulates fills. 'live' routes every order through `sender` with real
+   * quotes from `quoteSources`; it is refused unless a sender is configured. Live orders are
+   * additionally capped by `liveLimits`.
+   */
+  executionMode?: 'paper' | 'live';
+  quoteSources?: QuoteSource[];
+  sender?: TransactionSender;
+  liveLimits?: { maxTradeUsd: number; dailyCapUsd: number };
 }
 
 export interface TokenEvaluation {
@@ -82,7 +91,7 @@ export interface EngineSnapshot {
   portfolio: { equityUsd: number; cashUsd: number; open: number; realizedUsd: number; halted: boolean; haltReason: string | null };
   paperPositions: Array<{ symbol: string; tokenMint: string; sizeUsd: number; entryPriceUsd: number; currentPriceUsd: number; pnlPct: number; remainingFraction: number; openedAt: number }>;
   closedTrades: TradeResult[];
-  execution: { rpcHealth: number; killSwitch: { tripped: boolean; reason: string | null }; orders: number; auditEvents: number };
+  execution: { rpcHealth: number; killSwitch: { tripped: boolean; reason: string | null }; orders: number; auditEvents: number; mode: 'paper' | 'live'; liveLimits: { maxTradeUsd: number; dailyCapUsd: number }; wallet: string | null };
   feed: Array<{ ts: number; kind: string; text: string; tokenMint?: string }>;
   outcomes: number;
   similarityCases: number;
@@ -142,6 +151,10 @@ export class IntelligenceEngine {
   realizedUsd = 0;
   haltReason: string | null = null;
   private lastExit = new Map<string, { at: number; pnlUsd: number }>();
+  executionMode: 'paper' | 'live';
+  liveLimits: { maxTradeUsd: number; dailyCapUsd: number };
+  /** USD notionally bought live in the trailing 24h (spend cap). */
+  private liveSpend: Array<{ at: number; usd: number }> = [];
 
   private agents: { scout: MarketScoutAgent; wallet: WalletAnalystAgent; social: SocialAnalystAgent; security: SecurityAnalystAgent; reviewer: TradeReviewerAgent };
   private readonly opts: Required<Pick<EngineOptions, 'intendedSizeUsd' | 'startEquityUsd' | 'limits' | 'outcomeHorizonMs' | 'paperTrading' | 'topN'>> & EngineOptions;
@@ -152,8 +165,11 @@ export class IntelligenceEngine {
     this.opts = { intendedSizeUsd: 500, startEquityUsd: 25_000, limits: DEFAULT_LIMITS, outcomeHorizonMs: 24 * MS.h, paperTrading: true, topN: 20, ...options };
     this.cashUsd = this.opts.startEquityUsd;
     this.rpc = new RpcRouter(options.rpcUrls ?? ['sim://rpc-a', 'sim://rpc-b']);
-    this.quotes = new QuoteEngine([new PoolQuoteSource()]);
-    this.execution = new ExecutionEngine(this.quotes, this.rpc, this.killSwitch, this.audit);
+    this.quotes = new QuoteEngine(options.quoteSources?.length ? options.quoteSources : [new PoolQuoteSource()]);
+    this.execution = new ExecutionEngine(this.quotes, this.rpc, this.killSwitch, this.audit, undefined, options.sender);
+    if (options.executionMode === 'live' && !options.sender) throw new Error('executionMode=live requires a TransactionSender');
+    this.executionMode = options.executionMode ?? 'paper';
+    this.liveLimits = options.liveLimits ?? { maxTradeUsd: 100, dailyCapUsd: 500 };
     this.similarity = new SimilarityIndex(this.opts.outcomeHorizonMs);
     this.history = options.priceHistory ?? this.tradeDerivedHistory();
     const llm = options.llm;
@@ -214,6 +230,10 @@ export class IntelligenceEngine {
 
   setDeployerHistory(d: DeployerHistory): void {
     this.deployers.set(d.deployer, d);
+  }
+
+  private modeLabel(): string {
+    return this.executionMode === 'live' ? 'LIVE' : 'Paper';
   }
 
   private pushFeed(ts: number, kind: string, text: string, tokenMint?: string): void {
@@ -456,10 +476,10 @@ export class IntelligenceEngine {
       if (plan.action === 'hold') continue;
       const sellUsd = pos.quantity * pos.remainingFraction * plan.fraction * price;
       if (sellUsd < 5) continue;
-      const order = await this.execution.execute(pool, 'sell', sellUsd, 'paper', now, price);
+      const order = await this.execution.execute(pool, 'sell', sellUsd, this.executionMode, now, price, pos.quantity * pos.remainingFraction * plan.fraction);
       this.orders.push(order);
       if (order.status !== 'filled') {
-        this.pushFeed(now, 'execution', `Paper sell rejected for $${ev.token.symbol}: ${order.rejectReason}`, pos.tokenMint);
+        this.pushFeed(now, 'execution', `${this.modeLabel()} sell rejected for $${ev.token.symbol}: ${order.rejectReason}`, pos.tokenMint);
         continue;
       }
       pos.orders.push(order);
@@ -471,13 +491,13 @@ export class IntelligenceEngine {
         if (plan.reason.startsWith('take-profit')) pos.takenLevels.push(idx);
         else pos.discretionaryTrims = (pos.discretionaryTrims ?? 0) + 1;
       }
-      this.pushFeed(now, 'execution', `Paper ${plan.action} ${(plan.fraction * 100).toFixed(0)}% of $${ev.token.symbol}: ${plan.reason}`, pos.tokenMint);
+      this.pushFeed(now, 'execution', `${this.modeLabel()} ${plan.action} ${(plan.fraction * 100).toFixed(0)}% of $${ev.token.symbol}: ${plan.reason}${order.txSignature ? ` (${order.txSignature.slice(0, 8)}…)` : ''}`, pos.tokenMint);
       if (pos.remainingFraction <= 0.1 || plan.action !== 'partial') {
         // Close out any dust remainder so the position is fully realized.
         if (pos.remainingFraction > 0 && plan.action === 'partial') {
           const dustUsd = pos.quantity * pos.remainingFraction * price;
           if (dustUsd >= 5) {
-            const dust = await this.execution.execute(pool, 'sell', dustUsd, 'paper', now, price);
+            const dust = await this.execution.execute(pool, 'sell', dustUsd, this.executionMode, now, price, pos.quantity * pos.remainingFraction);
             if (dust.status === 'filled') {
               this.cashUsd += dust.filledUsd ?? 0;
               pos.realizedUsd += (dust.filledUsd ?? 0) - pos.sizeUsd * pos.remainingFraction;
@@ -511,18 +531,31 @@ export class IntelligenceEngine {
         return;
       }
       this.haltReason = null;
-      if (sizing.allowedUsd < 20) continue;
-      const order = await this.execution.execute(pool, 'buy', sizing.allowedUsd, 'paper', now, ev.market.priceUsd);
+      let sizeUsd = sizing.allowedUsd;
+      if (this.executionMode === 'live') {
+        // Live caps are hard limits on top of portfolio limits (spec §23 phase 6: strict limits).
+        this.liveSpend = this.liveSpend.filter((x) => now - x.at < MS.d);
+        const spent = this.liveSpend.reduce((a, x) => a + x.usd, 0);
+        sizeUsd = Math.min(sizeUsd, this.liveLimits.maxTradeUsd, this.liveLimits.dailyCapUsd - spent);
+        if (sizeUsd < 20) {
+          this.pushFeed(now, 'execution', `Live buy skipped for $${ev.token.symbol}: live caps (per-trade $${this.liveLimits.maxTradeUsd}, daily $${this.liveLimits.dailyCapUsd}, spent $${spent.toFixed(0)})`, ev.token.mint);
+          continue;
+        }
+      }
+      if (sizeUsd < 20) continue;
+      const order = await this.execution.execute(pool, 'buy', sizeUsd, this.executionMode, now, ev.market.priceUsd);
       this.orders.push(order);
       if (order.status !== 'filled') {
-        this.pushFeed(now, 'execution', `Paper buy rejected for $${ev.token.symbol}: ${order.rejectReason}`, ev.token.mint);
+        this.pushFeed(now, 'execution', `${this.modeLabel()} buy rejected for $${ev.token.symbol}: ${order.rejectReason}`, ev.token.mint);
         continue;
       }
+      if (this.executionMode === 'live') this.liveSpend.push({ at: now, usd: order.filledUsd ?? sizeUsd });
       const filledPx = order.filledPriceUsd ?? ev.market.priceUsd;
-      this.cashUsd -= order.filledUsd ?? sizing.allowedUsd;
+      this.cashUsd -= order.filledUsd ?? sizeUsd;
       const sig = this.signals.filter((s) => s.tokenMint === ev.token.mint).at(-1);
-      this.paperPositions.set(ev.token.mint, { tokenMint: ev.token.mint, entryPriceUsd: filledPx, quantity: (order.filledUsd ?? sizing.allowedUsd) / filledPx, remainingFraction: 1, highWaterPriceUsd: filledPx, openedAt: now, takenLevels: [], sizeUsd: order.filledUsd ?? sizing.allowedUsd, signalId: sig?.id ?? newId('sig'), card: ev.card, narrativeIds: nar, correlationKey: `${ev.token.chain}|${ev.token.launchType}|${nar[0] ?? 'none'}`, highRisk: ev.card.rugProbability > 0.05, realizedUsd: 0, orders: [order] });
-      this.pushFeed(now, 'execution', `Paper buy $${(order.filledUsd ?? 0).toFixed(0)} of $${ev.token.symbol} (${ev.card.decision}, net EV ${ev.card.scores.netEvPct.toFixed(1)}%${sizing.reasons.length ? `; ${sizing.reasons[0]}` : ''})`, ev.token.mint);
+      const quantity = order.filledTokenAmount ?? (order.filledUsd ?? sizeUsd) / filledPx;
+      this.paperPositions.set(ev.token.mint, { tokenMint: ev.token.mint, entryPriceUsd: filledPx, quantity, remainingFraction: 1, highWaterPriceUsd: filledPx, openedAt: now, takenLevels: [], sizeUsd: order.filledUsd ?? sizeUsd, signalId: sig?.id ?? newId('sig'), card: ev.card, narrativeIds: nar, correlationKey: `${ev.token.chain}|${ev.token.launchType}|${nar[0] ?? 'none'}`, highRisk: ev.card.rugProbability > 0.05, realizedUsd: 0, orders: [order] });
+      this.pushFeed(now, 'execution', `${this.modeLabel()} buy $${(order.filledUsd ?? 0).toFixed(0)} of $${ev.token.symbol} (${ev.card.decision}, net EV ${ev.card.scores.netEvPct.toFixed(1)}%${sizing.reasons.length ? `; ${sizing.reasons[0]}` : ''}${order.txSignature ? `; tx ${order.txSignature.slice(0, 8)}…` : ''})`, ev.token.mint);
     }
   }
 
@@ -584,7 +617,7 @@ export class IntelligenceEngine {
         return { symbol: this.tokens.get(p.tokenMint)?.symbol ?? '?', tokenMint: p.tokenMint, sizeUsd: p.sizeUsd, entryPriceUsd: p.entryPriceUsd, currentPriceUsd: px, pnlPct: (px / p.entryPriceUsd - 1) * 100, remainingFraction: p.remainingFraction, openedAt: p.openedAt };
       }),
       closedTrades: this.closedTrades.slice(-50),
-      execution: { rpcHealth: this.rpc.health(now), killSwitch: ks, orders: this.orders.length, auditEvents: this.audit.all().length },
+      execution: { rpcHealth: this.rpc.health(now), killSwitch: ks, orders: this.orders.length, auditEvents: this.audit.all().length, mode: this.executionMode, liveLimits: this.liveLimits, wallet: this.execution.hasSender() ? 'configured' : null },
       feed: this.feed.slice(-80).reverse(),
       outcomes: this.outcomes.length,
       similarityCases: this.similarity.size(),

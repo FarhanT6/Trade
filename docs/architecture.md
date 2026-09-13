@@ -49,7 +49,8 @@ BACKTEST / RECAL.   backtest/*, research/ (Python)
 | §20 Profitability metrics | `backtest/metrics.ts`, `research/meme_research/metrics.py` |
 | §21 Alert system | `alerts/rules.ts` (11 alert kinds, ranked, explainable, deduplicated) |
 | §22 Dashboard layout | `apps/web/components/Terminal.tsx` (LEFT watchlist · CENTER token terminal · RIGHT intelligence · BOTTOM live feed) |
-| §23 Build phases | Phases 1–5 implemented (terminal, trader intelligence, social intelligence, Pattern Lab + similarity + backtesting, execution simulator + paper trading + portfolio risk). Phase 6 (live execution) is wired behind `TransactionSender`; Phase 7 (adaptive models) is scaffolded in `research/` |
+| §23 Build phases | Phases 1–6 implemented (terminal, trader intelligence, social intelligence, Pattern Lab + similarity + backtesting, execution simulator + paper trading + portfolio risk, live execution with strict limits and kill switches). Phase 7 (adaptive models) is scaffolded in `research/` |
+| §12 / §23 Live execution | `packages/solana`: `JupiterClient` (quotes, swap transactions, prices), `JupiterQuoteSource` (real quotes + exit-path probe for the `QuoteEngine`), `SolanaTransactionSender` (fresh quote → sign → simulate → send → confirm → fill from balance deltas), `createLiveExecution` gate (flag + acknowledgement + caps + hot-wallet band + reachable services); engine-level per-trade and daily caps in `IntelligenceEngine.liveLimits` |
 | §24 Proprietary moat | signal/outcome store (`signals`, `outcomes`), cluster intelligence, cohort history, lead/lag, execution history (`execution_events`), similarity library, archetype model, attribution (`signal_attribution`), recalibrated Net EV (`fit_net_ev_model`) |
 
 ## Data flow in one tick

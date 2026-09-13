@@ -3,12 +3,13 @@ WORKDIR /app
 COPY package.json package-lock.json* tsconfig.base.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
+COPY packages/solana/package.json packages/solana/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 RUN npm ci --no-audit --no-fund
 COPY packages ./packages
 COPY apps/api ./apps/api
-RUN npm run build -w @meme-intel/core && npm run build -w @meme-intel/api
+RUN npm run build -w @meme-intel/core && npm run build -w @meme-intel/solana && npm run build -w @meme-intel/api
 
 FROM node:22-alpine
 WORKDIR /app
@@ -16,6 +17,8 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/core/package.json ./packages/core/package.json
 COPY --from=build /app/packages/core/dist ./packages/core/dist
+COPY --from=build /app/packages/solana/package.json ./packages/solana/package.json
+COPY --from=build /app/packages/solana/dist ./packages/solana/dist
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/package.json ./package.json

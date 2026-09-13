@@ -182,9 +182,19 @@ export class AuditLog {
 // Execution engine (paper + live adapter interface)
 // ---------------------------------------------------------------------------
 
+export interface TransactionFill {
+  filledPriceUsd: number;
+  filledUsd: number;
+  signature: string;
+  /** Token quantity received (buy) or sold (sell), in token units. */
+  filledTokenAmount?: number;
+}
+
 export interface TransactionSender {
-  /** Submit a swap; returns fill or throws. */
-  send(order: Order, quote: Quote): Promise<{ filledPriceUsd: number; filledUsd: number; signature: string }>;
+  /** Submit a swap; returns fill or throws. Implementations must simulate before sending. */
+  send(order: Order, quote: Quote): Promise<TransactionFill>;
+  /** Wallet public key, for auditing. */
+  readonly walletAddress: string;
 }
 
 export interface ExecutionConfig {
@@ -217,8 +227,16 @@ export class ExecutionEngine {
     return this.quotes.best(pool, 'sell', sizeUsd, now);
   }
 
-  async execute(pool: Pool, side: TradeSide, sizeUsd: number, mode: 'paper' | 'live', now = Date.now(), currentPriceUsd = pool.quoteReserveUsd / Math.max(1e-9, pool.tokenReserve)): Promise<Order> {
-    const order: Order = { id: newId('ord'), tokenMint: pool.tokenMint, side, sizeUsd, status: 'requested', mode, createdAt: now, updatedAt: now };
+  setSender(sender: TransactionSender | undefined): void {
+    this.sender = sender;
+  }
+
+  hasSender(): boolean {
+    return !!this.sender;
+  }
+
+  async execute(pool: Pool, side: TradeSide, sizeUsd: number, mode: 'paper' | 'live', now = Date.now(), currentPriceUsd = pool.quoteReserveUsd / Math.max(1e-9, pool.tokenReserve), amountToken?: number): Promise<Order> {
+    const order: Order = { id: newId('ord'), tokenMint: pool.tokenMint, side, sizeUsd, amountToken, status: 'requested', mode, createdAt: now, updatedAt: now };
     const reject = (reason: string) => {
       order.status = 'rejected';
       order.rejectReason = reason;
@@ -250,10 +268,12 @@ export class ExecutionEngine {
     order.status = 'submitted';
     this.audit.record(order.id, 'submit', { route: quote.route, mode }, now);
     try {
-      let fill: { filledPriceUsd: number; filledUsd: number; signature: string };
+      let fill: TransactionFill;
       if (mode === 'live') {
         if (!this.sender) throw new Error('no live transaction sender configured');
         fill = await this.sender.send(order, quote);
+        order.txSignature = fill.signature;
+        order.filledTokenAmount = fill.filledTokenAmount;
       } else {
         // Paper: realized impact = expected * (1 + noise); sells get value out, buys pay value in.
         const noise = this.cfg.paperSlippageNoise();
