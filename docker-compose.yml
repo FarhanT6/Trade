@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    environment:
+      POSTGRES_USER: meme
+      POSTGRES_PASSWORD: meme
+      POSTGRES_DB: meme_intel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meme -d meme_intel"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      MODE: ${MODE:-simulation}
+      PORT: 4000
+      DATABASE_URL: postgres://meme:meme@postgres:5432/meme_intel
+      REDIS_URL: redis://redis:6379
+      SOLANA_RPC_URLS: ${SOLANA_RPC_URLS:-https://api.mainnet-beta.solana.com}
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

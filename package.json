@@ -1,0 +1,23 @@
+{
+  "name": "meme-intel",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Meme-Coin Trading Intelligence Platform: on-chain, wallet, trader, social/narrative, security, execution and portfolio-risk intelligence in one decision engine.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @meme-intel/core && npm run build -w @meme-intel/api",
+    "test": "npm run test -w @meme-intel/core && npm run test -w @meme-intel/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run dev -w @meme-intel/api",
+    "dev:web": "npm run dev -w @meme-intel/web",
+    "simulate": "npm run simulate -w @meme-intel/api",
+    "backtest": "npm run backtest -w @meme-intel/api",
+    "db:migrate": "npm run migrate -w @meme-intel/db"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
